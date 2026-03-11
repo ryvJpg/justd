@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pelacak Lokasi</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        .icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        .status.processing {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.tracking {
+            background: #cce5ff;
+            color: #004085;
+        }
+        .details {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            text-align: left;
+        }
+        .details p {
+            margin: 8px 0;
+            color: #555;
+        }
+        .details a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .details a:hover {
+            text-decoration: underline;
+        }
+        .hidden {
+            display: none;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        .pulse {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: #28a745;
+            border-radius: 50%;
+            margin-right: 10px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+        .update-count {
+            font-size: 12px;
+            color: #888;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">📍</div>
+        <h1>Pelacak Lokasi</h1>
+
+        <div id="status" class="status processing">
+            <span class="spinner"></span>
+            Memulai pelacakan...
+        </div>
+
+        <div id="details" class="details hidden">
+            <p><strong>Koordinat:</strong></p>
+            <p id="coords"></p>
+            <p><strong>Waktu Update:</strong></p>
+            <p id="time"></p>
+            <p><strong>Google Maps:</strong></p>
+            <p id="maps-link"></p>
+            <p class="update-count" id="update-count"></p>
+        </div>
+    </div>
+
+    <script>
+        let updateCount = 0;
+        let watchId = null;
+        let lastSentTime = 0;
+        const MIN_INTERVAL = 5000; // Minimal 5 detik antara update
+
+        // Fungsi untuk mengirim lokasi ke server
+        function sendLocation(latitude, longitude, accuracy) {
+            const now = Date.now();
+
+            // Cegah spam - hanya kirim jika sudah lewat interval minimal
+            if (now - lastSentTime < MIN_INTERVAL && updateCount > 0) {
+                return;
+            }
+            lastSentTime = now;
+
+            updateCount++;
+            document.getElementById('status').className = 'status tracking';
+            document.getElementById('status').innerHTML = '<span class="pulse"></span> Melacak lokasi...';
+
+            fetch('/location', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    latitude: latitude,
+                    longitude: longitude,
+                    accuracy: accuracy
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Tampilkan detail
+                    document.getElementById('details').classList.remove('hidden');
+                    document.getElementById('coords').textContent =
+                        `Lat: ${latitude.toFixed(6)}, Lng: ${longitude.toFixed(6)}`;
+                    document.getElementById('time').textContent = data.waktu;
+                    document.getElementById('maps-link').innerHTML =
+                        `<a href="${data.google_maps}" target="_blank">Buka di Google Maps</a>`;
+                    document.getElementById('update-count').textContent =
+                        `Update ke-${updateCount}`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        // Fungsi jika gagal mendapatkan lokasi
+        function handleError(error) {
+            let message = '';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    message = 'Izin lokasi ditolak oleh pengguna';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message = 'Informasi lokasi tidak tersedia';
+                    break;
+                case error.TIMEOUT:
+                    message = 'Permintaan lokasi timeout';
+                    break;
+                default:
+                    message = 'Terjadi kesalahan tidak diketahui';
+            }
+            document.getElementById('status').className = 'status error';
+            document.getElementById('status').innerHTML = message;
+        }
+
+        // Fungsi callback saat lokasi ditemukan
+        function handlePosition(position) {
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            sendLocation(latitude, longitude, accuracy);
+        }
+
+        // Otomatis mulai pelacakan saat halaman dibuka
+        if ('geolocation' in navigator) {
+            // Gunakan watchPosition untuk pelacakan terus-menerus
+            watchId = navigator.geolocation.watchPosition(
+                handlePosition,
+                handleError,
+                {
+                    enableHighAccuracy: true,
+                    timeout: 30000,
+                    maximumAge: 0
+                }
+            );
+        } else {
+            document.getElementById('status').className = 'status error';
+            document.getElementById('status').innerHTML = 'Browser tidak mendukung Geolocation';
+        }
+
+        // Cleanup saat halaman ditutup
+        window.addEventListener('beforeunload', function() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+            }
+        });
+    </script>
+</body>
+</html>
